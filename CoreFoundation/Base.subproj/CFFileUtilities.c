@@ -1,7 +1,7 @@
 /*	CFFileUtilities.c
-	Copyright (c) 1999-2018, Apple Inc. and the Swift project authors
+	Copyright (c) 1999-2019, Apple Inc. and the Swift project authors
  
-	Portions Copyright (c) 2014-2018, Apple Inc. and the Swift project authors
+	Portions Copyright (c) 2014-2019, Apple Inc. and the Swift project authors
 	Licensed under Apache License v2.0 with Runtime Library Exception
 	See http://swift.org/LICENSE.txt for license information
 	See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
@@ -372,7 +372,6 @@ CF_PRIVATE CFMutableArrayRef _CFCreateContentsOfDirectory(CFAllocatorRef alloc, 
         }
     }
     
-    struct dirent buffer;
     struct dirent *dp;
     int err;
    
@@ -389,7 +388,7 @@ CF_PRIVATE CFMutableArrayRef _CFCreateContentsOfDirectory(CFAllocatorRef alloc, 
     }
     files = CFArrayCreateMutable(alloc, 0, & kCFTypeArrayCallBacks);
 
-    while((0 == readdir_r(dirp, &buffer, &dp)) && dp) {
+    while((dp = readdir(dirp))) {
         CFURLRef fileURL;
 	unsigned namelen = strlen(dp->d_name);
 
@@ -439,7 +438,11 @@ CF_PRIVATE CFMutableArrayRef _CFCreateContentsOfDirectory(CFAllocatorRef alloc, 
             dirURL = CFURLCreateFromFileSystemRepresentation(alloc, (uint8_t *)dirPath, pathLength, true);
             releaseBase = true;
         }
+#if !defined(__OpenBSD__)
         if (dp->d_type == DT_DIR || dp->d_type == DT_UNKNOWN || dp->d_type == DT_LNK || dp->d_type == DT_WHT) {
+#else
+        if (dp->d_type == DT_DIR || dp->d_type == DT_UNKNOWN || dp->d_type == DT_LNK) {
+#endif
             Boolean isDir = (dp->d_type == DT_DIR);
             if (!isDir) {
                 // Ugh; must stat.
@@ -595,7 +598,7 @@ CF_PRIVATE SInt32 _CFGetFileProperties(CFAllocatorRef alloc, CFURLRef pathURL, B
 }
 
 CF_PRIVATE bool _CFURLExists(CFURLRef url) {
-    Boolean exists;
+    Boolean exists = false;
     return url && (0 == _CFGetFileProperties(kCFAllocatorSystemDefault, url, &exists, NULL, NULL, NULL, NULL, NULL)) && exists;
 }
 
@@ -1055,10 +1058,28 @@ CF_PRIVATE void _CFIterateDirectory(CFStringRef directoryPath, Boolean appendSla
                 continue;
             }
 
-            assert(!stuffToPrefix && "prefix not yet implemented");
-            CFStringRef filePath = CFRetain(fileName);
+            const UniChar kSlash = CFPreferredSlash;
 
+            CFStringAppendBuffer buffer;
+            CFStringInitAppendBuffer(kCFAllocatorSystemDefault, &buffer);
+
+            if (stuffToPrefix) {
+              for (CFIndex i = 0, e = CFArrayGetCount(stuffToPrefix); i < e; i++) {
+                CFStringRef entry = CFArrayGetValueAtIndex(stuffToPrefix, i);
+                CFStringAppendStringToAppendBuffer(&buffer, entry);
+                if (CFStringGetCharacterAtIndex(entry, CFStringGetLength(entry) - 1) != _CFGetSlash()) {
+                  CFStringAppendCharactersToAppendBuffer(&buffer, &kSlash, 1);
+                }
+              }
+            }
+
+            CFStringAppendStringToAppendBuffer(&buffer, fileName);
             Boolean isDirectory = file.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
+            if (appendSlashForDirectories && isDirectory) {
+              CFStringAppendCharactersToAppendBuffer(&buffer, &kSlash, 1);
+            }
+
+            CFMutableStringRef filePath = CFStringCreateMutableWithAppendBuffer(&buffer);
             Boolean result = fileHandler(fileName, filePath, isDirectory ? DT_DIR : DT_REG);
             CFRelease(fileName);
             CFRelease(filePath);

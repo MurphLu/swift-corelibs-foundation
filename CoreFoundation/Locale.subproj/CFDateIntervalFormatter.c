@@ -132,7 +132,7 @@ static void updateFormatter(CFDateIntervalFormatterRef dif) {
         
         char localeBuffer[100] = {0};
         CFStringGetCString(localeID, localeBuffer, 100, kCFStringEncodingUTF8);
-        
+
         UniChar timeZoneID[100] = {0};
         CFTimeZoneRef timeZone = dif->_timeZone;
         if (timeZone) {
@@ -179,6 +179,7 @@ static void updateFormatter(CFDateIntervalFormatterRef dif) {
 #endif
         
         CFRelease(locale);
+        CFRelease(localeID);
         CFRelease(timeZone);
     }
 }
@@ -241,8 +242,8 @@ void _CFDateIntervalFormatterInitializeFromCoderValues(CFDateIntervalFormatterRe
                                                        int64_t timeStyle,
                                                        CFStringRef _Nullable dateTemplate,
                                                        CFStringRef _Nullable dateTemplateFromStyles,
-                                                       bool modified,
-                                                       bool useTemplate,
+                                                       Boolean modified,
+                                                       Boolean useTemplate,
                                                        CFLocaleRef _Nullable locale,
                                                        CFCalendarRef _Nullable calendar,
                                                        CFTimeZoneRef _Nullable timeZone) {
@@ -277,8 +278,8 @@ void _CFDateIntervalFormatterCopyCoderValues(CFDateIntervalFormatterRef formatte
                                              int64_t *timeStyle,
                                              CFStringRef _Nullable *dateTemplate,
                                              CFStringRef _Nullable *dateTemplateFromStyles,
-                                             bool *modified,
-                                             bool *useTemplate,
+                                             Boolean *modified,
+                                             Boolean *useTemplate,
                                              CFLocaleRef _Nullable *locale,
                                              CFCalendarRef _Nullable *calendar,
                                              CFTimeZoneRef _Nullable *timeZone) {

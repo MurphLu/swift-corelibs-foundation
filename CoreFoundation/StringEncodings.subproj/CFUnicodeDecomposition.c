@@ -1,7 +1,7 @@
 /*	CFUnicodeDecomposition.c
-	Copyright (c) 1999-2018, Apple Inc. and the Swift project authors
+	Copyright (c) 1999-2019, Apple Inc. and the Swift project authors
  
-	Portions Copyright (c) 2014-2018, Apple Inc. and the Swift project authors
+	Portions Copyright (c) 2014-2019, Apple Inc. and the Swift project authors
 	Licensed under Apache License v2.0 with Runtime Library Exception
 	See http://swift.org/LICENSE.txt for license information
 	See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
@@ -24,24 +24,24 @@ static UTF32Char *__CFUniCharMultipleDecompositionTable = NULL;
 static const uint8_t *__CFUniCharDecomposableBitmapForBMP = NULL;
 static const uint8_t *__CFUniCharHFSPlusDecomposableBitmapForBMP = NULL;
 
-static CFLock_t __CFUniCharDecompositionTableLock = CFLockInit;
+static os_unfair_lock __CFUniCharDecompositionTableLock = OS_UNFAIR_LOCK_INIT;
 
 static const uint8_t **__CFUniCharCombiningPriorityTable = NULL;
 static uint8_t __CFUniCharCombiningPriorityTableNumPlane = 0;
 
 static void __CFUniCharLoadDecompositionTable(void) {
 
-    __CFLock(&__CFUniCharDecompositionTableLock);
+    os_unfair_lock_lock(&__CFUniCharDecompositionTableLock);
 
     if (NULL == __CFUniCharDecompositionTable) {
         const uint32_t *bytes = (uint32_t *)CFUniCharGetMappingData(kCFUniCharCanonicalDecompMapping);
 
         if (NULL == bytes) {
-            __CFUnlock(&__CFUniCharDecompositionTableLock);
+            os_unfair_lock_unlock(&__CFUniCharDecompositionTableLock);
             return;
         }
 
-        __CFUniCharDecompositionTableLength = *(bytes++);
+        __CFUniCharDecompositionTableLength = unaligned_load32(bytes++);
         __CFUniCharDecompositionTable = (UTF32Char *)bytes;
         __CFUniCharMultipleDecompositionTable = (UTF32Char *)((intptr_t)bytes + __CFUniCharDecompositionTableLength);
 
@@ -56,7 +56,7 @@ static void __CFUniCharLoadDecompositionTable(void) {
         for (idx = 0;idx < __CFUniCharCombiningPriorityTableNumPlane;idx++) __CFUniCharCombiningPriorityTable[idx] = (const uint8_t *)CFUniCharGetUnicodePropertyDataForPlane(kCFUniCharCombiningProperty, idx);
     }
 
-    __CFUnlock(&__CFUniCharDecompositionTableLock);
+    os_unfair_lock_unlock(&__CFUniCharDecompositionTableLock);
 }
 
 static CFLock_t __CFUniCharCompatibilityDecompositionTableLock = CFLockInit;
@@ -102,18 +102,24 @@ typedef struct {
 static uint32_t __CFUniCharGetMappedValue(const __CFUniCharDecomposeMappings *theTable, uint32_t numElem, UTF32Char character) {
     const __CFUniCharDecomposeMappings *p, *q, *divider;
 
-    if ((character < theTable[0]._key) || (character > theTable[numElem-1]._key)) {
+#define READ_KEY(x)     unaligned_load32(((uint8_t *)x) + offsetof(__CFUniCharDecomposeMappings, _key))
+#define READ_VALUE(x)   unaligned_load32(((uint8_t *)x) + offsetof(__CFUniCharDecomposeMappings, _value))
+
+    if ((character < READ_KEY(&theTable[0])) || (character > READ_KEY(&theTable[numElem-1]))) {
         return 0;
     }
     p = theTable;
     q = p + (numElem-1);
     while (p <= q) {
         divider = p + ((q - p) >> 1);    /* divide by 2 */
-        if (character < divider->_key) { q = divider - 1; }
-        else if (character > divider->_key) { p = divider + 1; }
-        else { return divider->_value; }
+        if (character < READ_KEY(divider)) { q = divider - 1; }
+        else if (character > READ_KEY(divider)) { p = divider + 1; }
+        else { return READ_VALUE(divider); }
     }
     return 0;
+
+#undef READ_KEY
+#undef READ_VALUE
 }
 
 static void __CFUniCharPrioritySort(UTF32Char *characters, CFIndex length) {
@@ -162,7 +168,7 @@ static CFIndex __CFUniCharRecursivelyDecomposeCharacter(UTF32Char character, UTF
 
     usedLength += length;
 
-    while (length--) *(convertedChars++) = *(mappings++);
+    while (length--) *(convertedChars++) = unaligned_load32(mappings++);
 
     return usedLength;
 }

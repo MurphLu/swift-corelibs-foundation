@@ -1,7 +1,7 @@
 /*	CFXMLPreferencesDomain.c
-	Copyright (c) 1998-2018, Apple Inc. and the Swift project authors
+	Copyright (c) 1998-2019, Apple Inc. and the Swift project authors
  
-	Portions Copyright (c) 2014-2018, Apple Inc. and the Swift project authors
+	Portions Copyright (c) 2014-2019, Apple Inc. and the Swift project authors
 	Licensed under Apache License v2.0 with Runtime Library Exception
 	See http://swift.org/LICENSE.txt for license information
 	See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
@@ -55,7 +55,7 @@ static void __CFMilliSleep(uint32_t msecs) {
     SleepEx(msecs, false);
 #elif defined(__svr4__) || defined(__hpux__)
     sleep((msecs + 900) / 1000);
-#elif TARGET_OS_OSX || TARGET_OS_LINUX
+#elif TARGET_OS_OSX || TARGET_OS_LINUX || TARGET_OS_BSD
     struct timespec input;
     input.tv_sec = msecs / 1000;
     input.tv_nsec = (msecs - input.tv_sec * 1000) * 1000000;

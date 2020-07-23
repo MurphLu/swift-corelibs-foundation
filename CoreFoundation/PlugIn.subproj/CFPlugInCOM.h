@@ -1,7 +1,7 @@
 /*	CFPlugInCOM.h
-	Copyright (c) 1999-2018, Apple Inc. and the Swift project authors
+	Copyright (c) 1999-2019, Apple Inc. and the Swift project authors
  
-	Portions Copyright (c) 2014-2018, Apple Inc. and the Swift project authors
+	Portions Copyright (c) 2014-2019, Apple Inc. and the Swift project authors
 	Licensed under Apache License v2.0 with Runtime Library Exception
 	See http://swift.org/LICENSE.txt for license information
 	See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
@@ -20,7 +20,12 @@ CF_EXTERN_C_BEGIN
 /* The _reserved field is part of the Microsoft COM binary standard on Macintosh. */
 /* You can declare new C struct interfaces by defining a new struct that includes "IUNKNOWN_C_GUTS;" before the first field of the struct. */
 
-#if !TARGET_OS_WIN32
+#if TARGET_OS_WIN32
+#define NOMINMAX
+#define VC_EXTRALEAN
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#else
 typedef SInt32 HRESULT;
 typedef UInt32 ULONG;
 typedef void *LPVOID;

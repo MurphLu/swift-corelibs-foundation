@@ -1,7 +1,7 @@
 /*	CoreFoundation_Prefix.h
-	Copyright (c) 2005-2018, Apple Inc. and the Swift project authors
+	Copyright (c) 2005-2019, Apple Inc. and the Swift project authors
  
-	Portions Copyright (c) 2014-2018, Apple Inc. and the Swift project authors
+	Portions Copyright (c) 2014-2019, Apple Inc. and the Swift project authors
 	Licensed under Apache License v2.0 with Runtime Library Exception
 	See http://swift.org/LICENSE.txt for license information
 	See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
@@ -9,6 +9,12 @@
 
 #ifndef __COREFOUNDATION_PREFIX_H__
 #define __COREFOUNDATION_PREFIX_H__ 1
+
+#if __has_include(<CoreFoundation/TargetConditionals.h>)
+#include <CoreFoundation/TargetConditionals.h>
+#else
+#include <TargetConditionals.h>
+#endif
 
 #define _DARWIN_UNLIMITED_SELECT 1
 
@@ -27,7 +33,7 @@
 extern "C" {
 #endif
 
-#if DEPLOYMENT_TARGET_IPHONESIMULATOR // work around <rdar://problem/16507706>
+#if TARGET_OS_IPHONE && TARGET_OS_SIMULATOR // work around <rdar://problem/16507706>
 #include <pthread.h>
 #include <pthread/qos.h>
 #define qos_class_self() (QOS_CLASS_UTILITY)
@@ -66,6 +72,32 @@ typedef char * Class;
 #if TARGET_OS_MAC
 #include <libkern/OSAtomic.h>
 #include <pthread.h>
+#endif
+
+#if TARGET_OS_WIN32
+#define BOOL WINDOWS_BOOL
+
+#define MAXPATHLEN MAX_PATH
+#undef MAX_PATH
+#undef INVALID_HANDLE_VALUE
+
+#define WIN32_LEAN_AND_MEAN
+
+#ifndef WINVER
+#define WINVER  0x0601
+#endif
+
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0601
+#endif
+
+// The order of these includes is important
+#define FD_SETSIZE 1024
+#include <winsock2.h>
+#include <windows.h>
+
+#undef BOOL
+
 #endif
 
     
@@ -119,40 +151,7 @@ static dispatch_queue_t __ ## PREFIX ## Queue(void) {			\
 #define CF_RETAIN_BALANCED_ELSEWHERE(obj, identified_location) do { } while (0)
 #endif
 
-#if TARGET_OS_WIN32
-// Compatibility with boolean.h
-#if defined(__x86_64__)
-typedef unsigned int	boolean_t;
-#else
-typedef int		boolean_t;
-#endif
-#endif
-    
-#if TARGET_OS_BSD
-#include <string.h>
-#include <sys/stat.h> // mode_t
-#endif
-
-#if TARGET_OS_LINUX
-    
-#define CF_PRIVATE extern __attribute__((visibility("hidden")))
-#define __weak
-
-#define strtod_l(a,b,locale) strtod(a,b)
-#define strtoul_l(a,b,c,locale) strtoul(a,b,c)
-#define strtol_l(a,b,c,locale) strtol(a,b,c)
-#define strtoll_l(a,b,c,locale) strtoll(a,b,c)
-#define strncasecmp_l(a, b, c, d) strncasecmp(a, b, c)
-
-#define fprintf_l(a,locale,b,...) fprintf(a, b, __VA_ARGS__)
-
-#include <pthread.h>
-
-#if TARGET_OS_ANDROID
-typedef unsigned long fd_mask;
-#endif
-    
-#if !TARGET_OS_ANDROID && !TARGET_OS_CYGWIN
+#if (TARGET_OS_LINUX && !TARGET_OS_ANDROID && !TARGET_OS_CYGWIN) || TARGET_OS_WIN32
 CF_INLINE size_t
 strlcpy(char * dst, const char * src, size_t maxlen) {
     const size_t srclen = strlen(src);
@@ -180,26 +179,98 @@ strlcat(char * dst, const char * src, size_t maxlen) {
 }
 #endif
 
-#if !TARGET_OS_CYGWIN
-#define issetugid() 0
+#if TARGET_OS_WIN32
+// Compatibility with boolean.h
+#if defined(__x86_64__)
+typedef unsigned int	boolean_t;
+#else
+typedef int		boolean_t;
+#endif
 #endif
     
-// Implemented in CFPlatform.c 
-bool OSAtomicCompareAndSwapPtr(void *oldp, void *newp, void *volatile *dst);
-bool OSAtomicCompareAndSwapLong(long oldl, long newl, long volatile *dst);
-bool OSAtomicCompareAndSwapPtrBarrier(void *oldp, void *newp, void *volatile *dst);
-bool OSAtomicCompareAndSwap64Barrier( int64_t __oldValue, int64_t __newValue, volatile int64_t *__theValue );
-    
-int32_t OSAtomicDecrement32Barrier(volatile int32_t *dst);
-int32_t OSAtomicIncrement32Barrier(volatile int32_t *dst);
-int32_t OSAtomicIncrement32(volatile int32_t *theValue);
-int32_t OSAtomicDecrement32(volatile int32_t *theValue);
+#if TARGET_OS_BSD
+#include <string.h>
+#include <sys/stat.h> // mode_t
+#endif
 
-int32_t OSAtomicAdd32( int32_t theAmount, volatile int32_t *theValue );
-int32_t OSAtomicAdd32Barrier( int32_t theAmount, volatile int32_t *theValue );
-bool OSAtomicCompareAndSwap32Barrier( int32_t oldValue, int32_t newValue, volatile int32_t *theValue );
+#if TARGET_OS_LINUX || TARGET_OS_BSD || TARGET_OS_WIN32
+// Implemented in CFPlatform.c
+CF_EXPORT bool OSAtomicCompareAndSwapPtr(void *oldp, void *newp, void *volatile *dst);
+CF_EXPORT bool OSAtomicCompareAndSwapLong(long oldl, long newl, long volatile *dst);
+CF_EXPORT bool OSAtomicCompareAndSwapPtrBarrier(void *oldp, void *newp, void *volatile *dst);
+CF_EXPORT bool OSAtomicCompareAndSwap64Barrier( int64_t __oldValue, int64_t __newValue, volatile int64_t *__theValue );
+
+CF_EXPORT int32_t OSAtomicDecrement32Barrier(volatile int32_t *dst);
+CF_EXPORT int32_t OSAtomicIncrement32Barrier(volatile int32_t *dst);
+CF_EXPORT int32_t OSAtomicIncrement32(volatile int32_t *theValue);
+CF_EXPORT int32_t OSAtomicDecrement32(volatile int32_t *theValue);
+
+CF_EXPORT int32_t OSAtomicAdd32( int32_t theAmount, volatile int32_t *theValue );
+CF_EXPORT int32_t OSAtomicAdd32Barrier( int32_t theAmount, volatile int32_t *theValue );
+CF_EXPORT bool OSAtomicCompareAndSwap32Barrier( int32_t oldValue, int32_t newValue, volatile int32_t *theValue );
+
+CF_EXPORT void OSMemoryBarrier();
+
+#include <time.h>
+
+CF_INLINE uint64_t mach_absolute_time() {
+#if TARGET_OS_WIN32
+    LARGE_INTEGER count;
+    QueryPerformanceCounter(&count);
+    // mach_absolute_time is unsigned, but this function returns a signed value.
+    return (uint64_t)count.QuadPart;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_nsec + (uint64_t)ts.tv_sec * 1000000000UL;
+#endif
+}
+
+#define malloc_default_zone() (void *)0
+#endif // TARGET_OS_LINUX || TARGET_OS_BSD || TARGET_OS_WIN32
+
+#if TARGET_OS_LINUX || TARGET_OS_WIN32 || defined(__OpenBSD__)
+#define strtod_l(a,b,locale) strtod(a,b)
+#define strtoul_l(a,b,c,locale) strtoul(a,b,c)
+#define strtol_l(a,b,c,locale) strtol(a,b,c)
+
+#define fprintf_l(a,locale,b,...) fprintf(a, b, __VA_ARGS__)
+
+CF_INLINE int flsl( long mask ) {
+    int idx = 0;
+    while (mask != 0) {
+        mask = (unsigned long)mask >> 1;
+        idx++;
+    }
+    return idx;
+}
+#endif // TARGET_OS_LINUX || TARGET_OS_WIN32 || defined(__OpenBSD__)
+
+#if TARGET_OS_LINUX
     
-void OSMemoryBarrier();
+#define CF_PRIVATE extern __attribute__((visibility("hidden")))
+#define __weak
+
+#define strtoll_l(a,b,c,locale) strtoll(a,b,c)
+#define strncasecmp_l(a, b, c, d) strncasecmp(a, b, c)
+
+#include <pthread.h>
+
+#if TARGET_OS_ANDROID
+typedef unsigned long fd_mask;
+#endif
+    
+
+#if !TARGET_OS_CYGWIN && !TARGET_OS_BSD
+#define issetugid() 0
+#endif
+
+#if TARGET_OS_CYGWIN
+#define HAVE_STRUCT_TIMESPEC 1
+#define strncasecmp_l(a, b, c, d) strncasecmp(a, b, c)
+#define _NO_BOOL_TYPEDEF
+#undef interface
+#endif
 
 #if TARGET_OS_CYGWIN
 #define HAVE_STRUCT_TIMESPEC 1
@@ -212,16 +283,6 @@ void OSMemoryBarrier();
 CF_INLINE size_t malloc_size(void *memblock) {
     return malloc_usable_size(memblock);
 }
-
-#include <time.h>
-CF_INLINE uint64_t mach_absolute_time() {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_nsec + (uint64_t)ts.tv_sec * 1000000000UL;
-}
-
-#define malloc_default_zone() (void *)0
-
 #endif
     
 #if TARGET_OS_BSD
@@ -231,26 +292,12 @@ CF_INLINE uint64_t mach_absolute_time() {
 #define __strong
 #define __weak
 
-// Implemented in CFPlatform.c
-bool OSAtomicCompareAndSwapPtr(void *oldp, void *newp, void *volatile *dst);
-bool OSAtomicCompareAndSwapLong(long oldl, long newl, long volatile *dst);
-bool OSAtomicCompareAndSwapPtrBarrier(void *oldp, void *newp, void *volatile *dst);
-bool OSAtomicCompareAndSwap64Barrier( int64_t __oldValue, int64_t __newValue, volatile int64_t *__theValue );
-
-int32_t OSAtomicDecrement32Barrier(volatile int32_t *dst);
-int32_t OSAtomicIncrement32Barrier(volatile int32_t *dst);
-int32_t OSAtomicIncrement32(volatile int32_t *theValue);
-int32_t OSAtomicDecrement32(volatile int32_t *theValue);
-
-int32_t OSAtomicAdd32( int32_t theAmount, volatile int32_t *theValue );
-int32_t OSAtomicAdd32Barrier( int32_t theAmount, volatile int32_t *theValue );
-bool OSAtomicCompareAndSwap32Barrier( int32_t oldValue, int32_t newValue, volatile int32_t *theValue );
-
-void OSMemoryBarrier();
-
+#if defined(__OpenBSD__)
+#define strtoll_l(a,b,c,locale) strtoll(a,b,c)
+#endif
 #endif
 
-#if TARGET_OS_LINUX
+#if TARGET_OS_LINUX || TARGET_OS_BSD
 #include <sys/param.h>
 #endif
 #if TARGET_OS_WIN32 || TARGET_OS_LINUX
@@ -260,10 +307,6 @@ void OSMemoryBarrier();
 #endif
 
 #if TARGET_OS_WIN32
-
-#define MAXPATHLEN MAX_PATH
-#undef MAX_PATH
-#undef INVALID_HANDLE_VALUE
 
 // Defined for source compatibility
 #define ino_t _ino_t
@@ -291,29 +334,8 @@ CF_EXPORT int _NS_chdir(const char *name);
 CF_EXPORT int _NS_mkstemp(char *name, int bufSize);
 CF_EXPORT int _NS_access(const char *name, int amode);
 
-#define BOOL WINDOWS_BOOL
-
-#define WIN32_LEAN_AND_MEAN
-
-#ifndef WINVER
-#define WINVER  0x0601
-#endif
-    
-#ifndef _WIN32_WINNT
-#define _WIN32_WINNT 0x0601
-#endif
-
-// The order of these includes is important
-#define FD_SETSIZE 1024
-#include <winsock2.h>
-#include <windows.h>
-#include <time.h>
-
-#undef BOOL
-
 #define __PRETTY_FUNCTION__ __FUNCTION__
 
-#define malloc_default_zone() (void *)0
 #define malloc_zone_from_ptr(a) (void *)0
 #define malloc_zone_malloc(zone,size) malloc(size)
 #define malloc_zone_memalign(zone,align,size) malloc(size)
@@ -349,90 +371,33 @@ CF_INLINE size_t malloc_size(void *memblock) {
     return _msize(memblock);
 }
 
-CF_INLINE uint64_t mach_absolute_time() {
-    LARGE_INTEGER count;
-    QueryPerformanceCounter(&count);
-    // mach_absolute_time is unsigned, but this function returns a signed value.
-    return (uint64_t)count.QuadPart;
-}
-
 CF_INLINE long long llabs(long long v) {
     if (v < 0) return -v;
     return v;
 }
 
-#define strtod_l(a,b,locale) strtod(a,b)
-#define strtoul_l(a,b,c,locale) strtoul(a,b,c)
-#define strtol_l(a,b,c,locale) strtol(a,b,c)
 #define strtoll_l(a,b,c,locale) _strtoi64(a,b,c)
 #define strncasecmp(a, b, c) _strnicmp(a, b, c)
 #define strncasecmp_l(a, b, c, d) _strnicmp(a, b, c)
 #define snprintf _snprintf
 
-#define fprintf_l(a,locale,b,...) fprintf(a, b, __VA_ARGS__)
-
-CF_INLINE size_t
-strlcpy(char * dst, const char * src, size_t maxlen) {
-    const size_t srclen = strlen(src);
-    if (srclen < maxlen) {
-        memcpy(dst, src, srclen+1);
-    } else if (maxlen != 0) {
-        memcpy(dst, src, maxlen-1);
-        dst[maxlen-1] = '\0';
-    }
-    return srclen;
-}
-
-CF_INLINE size_t
-strlcat(char * dst, const char * src, size_t maxlen) {
-    const size_t srclen = strlen(src);
-    const size_t dstlen = strnlen(dst, maxlen);
-    if (dstlen == maxlen) return maxlen+srclen;
-    if (srclen < maxlen-dstlen) {
-        memcpy(dst+dstlen, src, srclen+1);
-    } else {
-        memcpy(dst+dstlen, src, maxlen-dstlen-1);
-        dst[maxlen-1] = '\0';
-    }
-    return dstlen + srclen;
-}
-
 #define sleep(x) Sleep(1000*x)
 
 #define issetugid() 0
-
-// CF exports these useful atomic operation functions on Windows
-CF_EXPORT bool OSAtomicCompareAndSwapPtr(void *oldp, void *newp, void *volatile *dst);
-CF_EXPORT bool OSAtomicCompareAndSwapLong(long oldl, long newl, long volatile *dst);
-CF_EXPORT bool OSAtomicCompareAndSwapPtrBarrier(void *oldp, void *newp, void *volatile *dst);
-
-CF_EXPORT int32_t OSAtomicDecrement32Barrier(volatile int32_t *dst);
-CF_EXPORT int32_t OSAtomicIncrement32Barrier(volatile int32_t *dst);
-CF_EXPORT int32_t OSAtomicIncrement32(volatile int32_t *theValue);
-CF_EXPORT int32_t OSAtomicDecrement32(volatile int32_t *theValue);
-    
-CF_EXPORT int32_t OSAtomicAdd32( int32_t theAmount, volatile int32_t *theValue );
-CF_EXPORT int32_t OSAtomicAdd32Barrier( int32_t theAmount, volatile int32_t *theValue );
-CF_EXPORT bool OSAtomicCompareAndSwap32Barrier( int32_t oldValue, int32_t newValue, volatile int32_t *theValue );
-
-void OSMemoryBarrier();
-
-/*
-CF_EXPORT bool OSAtomicCompareAndSwap64( int64_t __oldValue, int64_t __newValue, volatile int64_t *__theValue );
-CF_EXPORT bool OSAtomicCompareAndSwap64Barrier( int64_t __oldValue, int64_t __newValue, volatile int64_t *__theValue );
-    
-CF_EXPORT int64_t OSAtomicAdd64( int64_t __theAmount, volatile int64_t *__theValue );
-CF_EXPORT int64_t OSAtomicAdd64Barrier( int64_t __theAmount, volatile int64_t *__theValue );
-*/
-
-//#ifndef NTDDI_VERSION
-//#define NTDDI_VERSION NTDDI_WINXP
-//#endif
 
 #include <io.h>
 #include <fcntl.h>
 #include <errno.h>
     
+CF_INLINE int popcountll(long long x) {
+    int count = 0;
+    while (x) {
+        count++;
+        x &= x - 1; // reset LS1B
+    }
+    return count;
+}
+
 #endif
 
 #if !defined(CF_PRIVATE)
@@ -447,21 +412,6 @@ CF_EXPORT int64_t OSAtomicAdd64Barrier( int64_t __theAmount, volatile int64_t *_
 #if TARGET_OS_LINUX || TARGET_OS_WIN32
 
 #include <stdarg.h>
-
-CF_INLINE int flsl( long mask ) {
-    int idx = 0;
-    while (mask != 0) mask = (unsigned long)mask >> 1, idx++;
-    return idx;
-}
-    
-CF_INLINE int popcountll(long long x) {
-    int count = 0;
-    while (x) {
-        count++;
-        x &= x - 1; // reset LS1B
-    }
-    return count;
-}
 
 CF_PRIVATE int asprintf(char **ret, const char *format, ...);
 

@@ -22,11 +22,16 @@ set(CMAKE_POSITION_INDEPENDENT_CODE YES)
 
 set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
 set(THREADS_PREFER_PTHREAD_FLAG OFF)
-find_package(Threads)
+find_package(Threads REQUIRED)
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL Darwin)
   find_package(LibXml2 REQUIRED)
-  find_package(CURL REQUIRED)
+  find_package(CURL CONFIG)
+  if(CURL_FOUND)
+    set(CURL_VERSION_STRING ${CURL_VERSION})
+  else()
+    find_package(CURL REQUIRED)
+  endif()
   find_package(ICU COMPONENTS uc i18n REQUIRED)
 endif()
 
@@ -143,9 +148,9 @@ add_framework(CoreFoundation
                 Locale.subproj/CFLocale_Private.h
                 # NumberDate
                 NumberDate.subproj/CFBigNumber.h
+                NumberDate.subproj/CFNumber_Private.h
                 # Parsing
                 Parsing.subproj/CFPropertyList_Private.h
-                Parsing.subproj/CFXMLInputStream.h
                 # PlugIn
                 PlugIn.subproj/CFBundlePriv.h
                 PlugIn.subproj/CFBundle_BinaryTypes.h
@@ -238,8 +243,6 @@ add_framework(CoreFoundation
                 NumberDate.subproj/CFTimeZone.h
                 # Parsing
                 Parsing.subproj/CFPropertyList.h
-                Parsing.subproj/CFXMLNode.h
-                Parsing.subproj/CFXMLParser.h
                 # PlugIn
                 PlugIn.subproj/CFBundle.h
                 PlugIn.subproj/CFPlugIn.h
@@ -307,10 +310,6 @@ add_framework(CoreFoundation
                 Parsing.subproj/CFBinaryPList.c
                 Parsing.subproj/CFOldStylePList.c
                 Parsing.subproj/CFPropertyList.c
-                Parsing.subproj/CFXMLInputStream.c
-                Parsing.subproj/CFXMLNode.c
-                Parsing.subproj/CFXMLParser.c
-                Parsing.subproj/CFXMLTree.c
                 # PlugIn
                 PlugIn.subproj/CFBundle_Binary.c
                 PlugIn.subproj/CFBundle.c
@@ -322,12 +321,10 @@ add_framework(CoreFoundation
                 PlugIn.subproj/CFBundle_Main.c
                 PlugIn.subproj/CFBundle_ResourceFork.c
                 PlugIn.subproj/CFBundle_Resources.c
+                PlugIn.subproj/CFBundle_SplitFileName.c
                 PlugIn.subproj/CFBundle_Strings.c
                 PlugIn.subproj/CFBundle_Tables.c
                 PlugIn.subproj/CFPlugIn.c
-                PlugIn.subproj/CFPlugIn_Factory.c
-                PlugIn.subproj/CFPlugIn_Instance.c
-                PlugIn.subproj/CFPlugIn_PlugIn.c
                 # Preferences
                 Preferences.subproj/CFApplicationPreferences.c
                 Preferences.subproj/CFPreferences.c
@@ -379,8 +376,7 @@ target_compile_definitions(CoreFoundation
                              $<$<COMPILE_LANGUAGE:ASM>:CF_CHARACTERSET_UNICODE_DATA_L="CharacterSets/CFUnicodeData-L.mapping">)
 target_include_directories(CoreFoundation
                            PRIVATE
-                             ${PROJECT_SOURCE_DIR}
-                             ${ICU_INCLUDE_DIR})
+                             ${PROJECT_SOURCE_DIR})
 target_link_libraries(CoreFoundation PRIVATE
   Threads::Threads
   ${CMAKE_DL_LIBS}
@@ -389,6 +385,21 @@ target_link_libraries(CoreFoundation PRIVATE
 if(CMAKE_SYSTEM_NAME STREQUAL Android)
   target_link_libraries(CoreFoundation PRIVATE
     log)
+endif()
+if(NOT CMAKE_SYSTEM_NAME STREQUAL Darwin)
+  target_link_libraries(CoreFoundation PRIVATE
+    ICU::uc
+    ICU::i18n)
+endif()
+
+if(NOT CMAKE_SYSTEM_NAME STREQUAL Darwin)
+  if((NS_CURL_ASSUME_FEATURES_MISSING) OR (CURL_VERSION_STRING VERSION_LESS "7.32.0"))
+    add_compile_definitions($<$<COMPILE_LANGUAGE:C>:NS_CURL_MISSING_XFERINFOFUNCTION>)
+  endif()
+
+  if((NS_CURL_ASSUME_FEATURES_MISSING) OR (CURL_VERSION_STRING VERSION_LESS "7.30.0"))
+    add_compile_definitions($<$<COMPILE_LANGUAGE:C>:NS_CURL_MISSING_MAX_HOST_CONNECTIONS>)
+  endif()
 endif()
 
 add_framework(CFURLSessionInterface
@@ -409,10 +420,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL Windows)
                              PRIVATE
                                CURL_STATICLIB)
 endif()
-target_include_directories(CFURLSessionInterface PRIVATE
-  ${CURL_INCLUDE_DIRS})
-target_link_libraries(CFURLSessionInterface PRIVATE
-  ${CURL_LIBRARIES})
+if(NOT CMAKE_SYSTEM_NAME STREQUAL Darwin)
+  target_link_libraries(CFURLSessionInterface PRIVATE
+    CURL::libcurl)
+endif()
 
 add_framework(CFXMLInterface
                 ${FRAMEWORK_LIBRARY_TYPE}
@@ -427,10 +438,10 @@ add_framework(CFXMLInterface
               SOURCES
                 Parsing.subproj/CFXMLInterface.c)
 add_dependencies(CFXMLInterface CoreFoundation)
-target_include_directories(CFXMLInterface PRIVATE
-  ${LIBXML2_INCLUDE_DIR})
-target_link_libraries(CFXMLInterface PRIVATE
-  ${LIBXML2_LIBRARIES})
+if(NOT CMAKE_SYSTEM_NAME STREQUAL Darwin)
+  target_link_libraries(CFXMLInterface PRIVATE
+    LibXml2::LibXml2)
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL Windows)
   add_library(CoreFoundationResources OBJECT

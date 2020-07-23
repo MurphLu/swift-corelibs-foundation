@@ -1,7 +1,7 @@
 /*	CFUniChar.c
-	Copyright (c) 2001-2018, Apple Inc. and the Swift project authors
+	Copyright (c) 2001-2019, Apple Inc. and the Swift project authors
  
-	Portions Copyright (c) 2014-2018, Apple Inc. and the Swift project authors
+	Portions Copyright (c) 2014-2019, Apple Inc. and the Swift project authors
 	Licensed under Apache License v2.0 with Runtime Library Exception
 	See http://swift.org/LICENSE.txt for license information
 	See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
@@ -432,7 +432,7 @@ static char __CFUniCharUnicodeVersionString[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 static uint32_t __CFUniCharNumberOfBitmaps = 0;
 static __CFUniCharBitmapData *__CFUniCharBitmapDataArray = NULL;
 
-static CFLock_t __CFUniCharBitmapLock = CFLockInit;
+static os_unfair_lock __CFUniCharBitmapLock = OS_UNFAIR_LOCK_INIT;
 
 static bool __CFUniCharLoadBitmapData(void) {
     __CFUniCharBitmapData *array;
@@ -446,10 +446,10 @@ static bool __CFUniCharLoadBitmapData(void) {
     int idx, bitmapIndex;
     int64_t fileSize;
 
-    __CFLock(&__CFUniCharBitmapLock);
+    os_unfair_lock_lock(&__CFUniCharBitmapLock);
 
     if (__CFUniCharBitmapDataArray || !__CFUniCharLoadFile(CF_UNICHAR_BITMAP_FILE, &bytes, &fileSize) || !__CFSimpleFileSizeVerification(bytes, fileSize)) {
-        __CFUnlock(&__CFUniCharBitmapLock);
+        os_unfair_lock_unlock(&__CFUniCharBitmapLock);
         return false;
     }
 
@@ -497,7 +497,7 @@ static bool __CFUniCharLoadBitmapData(void) {
 
     __CFUniCharBitmapDataArray = array;
 
-    __CFUnlock(&__CFUniCharBitmapLock);
+    os_unfair_lock_unlock(&__CFUniCharBitmapLock);
 
     return true;
 }
@@ -632,8 +632,8 @@ CF_PRIVATE uint8_t CFUniCharGetBitmapForPlane(uint32_t charset, uint32_t plane, 
             numBytes /= 4; // for 32bit
 
             while (numBytes-- > 0) {
-                *((uint32_t *)bitmap) = value;
-#if defined (__cplusplus)                
+                unaligned_store32(bitmap, value);
+#if defined (__cplusplus)
 				bitmap = (uint8_t *)bitmap + sizeof(uint32_t);				
 #else
 				bitmap += sizeof(uint32_t);
@@ -721,30 +721,31 @@ CF_PRIVATE uint32_t CFUniCharGetNumberOfPlanes(uint32_t charset) {
 // Mapping data loading
 static const void **__CFUniCharMappingTables = NULL;
 
-static CFLock_t __CFUniCharMappingTableLock = CFLockInit;
+static os_unfair_lock __CFUniCharMappingTableLock = OS_UNFAIR_LOCK_INIT;
 
 CF_PRIVATE const void *CFUniCharGetMappingData(uint32_t type) {
 
-    __CFLock(&__CFUniCharMappingTableLock);
+    os_unfair_lock_lock(&__CFUniCharMappingTableLock);
 
     if (NULL == __CFUniCharMappingTables) {
         const void *bytes;
         const void *bodyBase;
-        int headerSize;
-        int idx, count;
+        int32_t headerSize;
+        size_t idx, count;
 	int64_t fileSize;
 
         if (!__CFUniCharLoadFile(MAPPING_TABLE_FILE, &bytes, &fileSize) || !__CFSimpleFileSizeVerification(bytes, fileSize)) {
-            __CFUnlock(&__CFUniCharMappingTableLock);
+            os_unfair_lock_unlock(&__CFUniCharMappingTableLock);
             return NULL;
         }
 
 #if defined (__cplusplus)
-		bytes = (uint8_t *)bytes + 4; // Skip Unicode version
-		headerSize = *((uint8_t *)bytes); bytes = (uint8_t *)bytes + sizeof(uint32_t);
+        bytes = (uint8_t *)bytes + 4; // Skip Unicode version
+        headerSize = *((uint8_t *)bytes); bytes = (uint8_t *)bytes + sizeof(uint32_t);
 #else
 		bytes += 4; // Skip Unicode version
-		headerSize = *((uint32_t *)bytes); bytes += sizeof(uint32_t);
+        headerSize = unaligned_load32(bytes);
+        bytes += sizeof(uint32_t);
 #endif    
         headerSize -= (sizeof(uint32_t) * 2);
         bodyBase = (char *)bytes + headerSize;
@@ -755,14 +756,15 @@ CF_PRIVATE const void *CFUniCharGetMappingData(uint32_t type) {
 
         for (idx = 0;idx < count;idx++) {
 #if defined (__cplusplus)            
-			__CFUniCharMappingTables[idx] = (char *)bodyBase + *((uint32_t *)bytes); bytes = (uint8_t *)bytes + sizeof(uint32_t);
+            __CFUniCharMappingTables[idx] = (char *)bodyBase + *((uint32_t *)bytes); bytes = (uint8_t *)bytes + sizeof(uint32_t);
 #else
-			__CFUniCharMappingTables[idx] = (char *)bodyBase + *((uint32_t *)bytes); bytes += sizeof(uint32_t);
+			__CFUniCharMappingTables[idx] = (char *)bodyBase + unaligned_load32(bytes);
+            bytes += sizeof(uint32_t);
 #endif
         }
     }
 
-    __CFUnlock(&__CFUniCharMappingTableLock);
+    os_unfair_lock_unlock(&__CFUniCharMappingTableLock);
 
     return __CFUniCharMappingTables[type];
 }
@@ -783,18 +785,24 @@ typedef struct {
 static uint32_t __CFUniCharGetMappedCase(const __CFUniCharCaseMappings *theTable, uint32_t numElem, UTF32Char character) {
     const __CFUniCharCaseMappings *p, *q, *divider;
 
-    if ((character < theTable[0]._key) || (character > theTable[numElem-1]._key)) {
+#define READ_KEY(x)     unaligned_load32(((uint8_t *)x) + offsetof(__CFUniCharCaseMappings, _key))
+#define READ_VALUE(x)   unaligned_load32(((uint8_t *)x) + offsetof(__CFUniCharCaseMappings, _value))
+
+    if ((character < READ_KEY(&theTable[0])) || (character > READ_KEY(&theTable[numElem-1]))) {
         return 0;
     }
     p = theTable;
     q = p + (numElem-1);
     while (p <= q) {
         divider = p + ((q - p) >> 1);	/* divide by 2 */
-        if (character < divider->_key) { q = divider - 1; }
-        else if (character > divider->_key) { p = divider + 1; }
-        else { return divider->_value; }
+        if (character < READ_KEY(divider)) { q = divider - 1; }
+        else if (character > READ_KEY(divider)) { p = divider + 1; }
+        else { return READ_VALUE(divider); }
     }
     return 0;
+
+#undef READ_KEY
+#undef READ_VALUE
 }
 
 #define NUM_CASE_MAP_DATA (kCFUniCharCaseFold + 1)
@@ -806,10 +814,10 @@ static bool __CFUniCharLoadCaseMappingTable(void) {
     if (NULL == __CFUniCharMappingTables) (void)CFUniCharGetMappingData(kCFUniCharToLowercase);
     if (NULL == __CFUniCharMappingTables) return false;
 
-    __CFLock(&__CFUniCharMappingTableLock);
+    os_unfair_lock_lock(&__CFUniCharMappingTableLock);
 
     if (__CFUniCharCaseMappingTableCounts) {
-        __CFUnlock(&__CFUniCharMappingTableLock);
+        os_unfair_lock_unlock(&__CFUniCharMappingTableLock);
         return true;
     }
 
@@ -818,14 +826,14 @@ static bool __CFUniCharLoadCaseMappingTable(void) {
     __CFUniCharCaseMappingExtraTable = (const uint32_t **)__CFUniCharCaseMappingTable + NUM_CASE_MAP_DATA;
 
     for (idx = 0;idx < NUM_CASE_MAP_DATA;idx++) {
-        countArray[idx] = *((uint32_t *)__CFUniCharMappingTables[idx]) / (sizeof(uint32_t) * 2);
+        countArray[idx] = unaligned_load32(__CFUniCharMappingTables[idx]) / (sizeof(uint32_t) * 2);
         __CFUniCharCaseMappingTable[idx] = ((uint32_t *)__CFUniCharMappingTables[idx]) + 1;
-        __CFUniCharCaseMappingExtraTable[idx] = (const uint32_t *)((char *)__CFUniCharCaseMappingTable[idx] + *((uint32_t *)__CFUniCharMappingTables[idx]));
+        __CFUniCharCaseMappingExtraTable[idx] = (const uint32_t *)((char *)__CFUniCharCaseMappingTable[idx] + unaligned_load32(__CFUniCharMappingTables[idx]));
     }
 
     __CFUniCharCaseMappingTableCounts = countArray;
 
-    __CFUnlock(&__CFUniCharMappingTableLock);
+    os_unfair_lock_unlock(&__CFUniCharMappingTableLock);
     return true;
 }
 
@@ -1034,7 +1042,7 @@ caseFoldRetry:
                 } else {
                     CFIndex idx;
 
-                    for (idx = 0;idx < count;idx++) *(convertedChar++) = (UTF16Char)*(extraMapping++);
+                    for (idx = 0;idx < count;idx++) *(convertedChar++) = (UTF16Char)unaligned_load32(extraMapping++);
                     return count;
                 }
             }
@@ -1241,7 +1249,8 @@ const void *CFUniCharGetUnicodePropertyDataForPlane(uint32_t propertyType, uint3
         headerSize = CFSwapInt32BigToHost(*((uint32_t *)bytes)); bytes = (uint8_t *)bytes + sizeof(uint32_t);
 #else
         bytes += 4; // Skip Unicode version
-        headerSize = CFSwapInt32BigToHost(*((uint32_t *)bytes)); bytes += sizeof(uint32_t);
+        headerSize = unaligned_load32be(bytes);
+        bytes += sizeof(uint32_t);
 #endif
         
         headerSize -= (sizeof(uint32_t) * 2);
@@ -1275,7 +1284,7 @@ const void *CFUniCharGetUnicodePropertyDataForPlane(uint32_t propertyType, uint3
             bodyBase = (const uint8_t *)bodyBase + (CFSwapInt32BigToHost(*(uint32_t *)bytes));
             ((uint32_t *&)bytes) ++;
 #else
-            bodyBase += (CFSwapInt32BigToHost(*((uint32_t *)bytes++)));
+            bodyBase += unaligned_load32be(bytes++);
 #endif
         }
 
